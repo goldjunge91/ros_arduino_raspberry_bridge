@@ -20,7 +20,7 @@
   - Add motor speed clamping and validation
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
-- [ ] 4. Create mecanum controller module
+- [-] 4. Create mecanum controller module
   - Create new mecanum_controller.h file with data structures
   - Implement mecanum wheel kinematics calculations
   - Add mecanumTwistToWheels function for velocity conversion

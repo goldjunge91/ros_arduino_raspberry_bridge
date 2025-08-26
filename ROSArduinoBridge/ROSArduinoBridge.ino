@@ -141,6 +141,11 @@
   /* PID parameters and functions */
   #include "diff_controller.h"
 
+  /* Mecanum controller for omnidirectional drive */
+  #ifdef USE_MECANUM
+    #include "mecanum_controller.h"
+  #endif
+
   /* Run the PID loop at 30 times per second */
   #define PID_RATE           30     // Hz
 
@@ -375,6 +380,12 @@ void setup() {
   #endif
   initMotorController();
   resetPID();
+  
+  #ifdef USE_MECANUM
+    // Initialize mecanum controller parameters
+    initMecanumParams();
+    resetMecanumPID();
+  #endif
 #endif
 
 /* Attach servos if used */
@@ -457,7 +468,11 @@ void loop() {
   // If we are using base control, run a PID calculation at the appropriate intervals
   #ifdef USE_BASE
     if (millis() > nextPID) {
-      updatePID();
+      #ifdef USE_MECANUM
+        updateMecanumPID();
+      #else
+        updatePID();
+      #endif
       nextPID += PID_INTERVAL;
     }
   
