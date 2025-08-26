@@ -48,6 +48,11 @@
 #define USE_BASE      // Enable the base controller code
 //#undef USE_BASE     // Disable the base controller code
 
+#define NO_ENCODERS
+// #undef USE_MECANUM
+#define USE_MECANUM
+
+
 /* Define the motor controller and encoder library you are using */
 #ifdef USE_BASE
    /* The Pololu VNH5019 dual motor driver shield */
@@ -57,22 +62,53 @@
    //#define POLOLU_MC33926
 
    /* The RoboGaia encoder shield */
-   //#define ROBOGAIA
+   //#define ROBOGAIA 
    
    /* Encoders directly attached to Arduino board */
-   //#define ARDUINO_ENC_COUNTER
-   #define ARDUINO_HC89_COUNTER
+   #define ARDUINO_ENC_COUNTER
+  //  #define ARDUINO_HC89_COUNTER
 
    /* L298 Motor driver*/
-   //#define L298_MOTOR_DRIVER
-   #define ZKBM1_MOTOR_DRIVER
+  //  #define L298_MOTOR_DRIVER
+  //  #define ZKBM1_MOTOR_DRIVER
+  #define SPARKFUN_TB6612
+
+   /***************************************************************
+    Configuration Validation
+    *************************************************************/
+   
+   // Ensure exactly one motor driver is selected
+   #if defined(L298_MOTOR_DRIVER) + defined(ZKBM1_MOTOR_DRIVER) + defined(SPARKFUN_TB6612) + defined(POLOLU_VNH5019) + defined(POLOLU_MC33926) != 1
+     #error "Exactly one motor driver must be defined. Please select L298_MOTOR_DRIVER, ZKBM1_MOTOR_DRIVER, SPARKFUN_TB6612, POLOLU_VNH5019, or POLOLU_MC33926"
+   #endif
+   
+   // Validate mecanum mode compatibility
+   #ifdef USE_MECANUM
+     #if defined(L298_MOTOR_DRIVER)
+       #error "L298 motor driver does not support mecanum mode (4-motor control). Use SPARKFUN_TB6612 or disable USE_MECANUM"
+     #elif defined(ZKBM1_MOTOR_DRIVER)
+       #error "ZKBM1 motor driver does not support mecanum mode (4-motor control). Use SPARKFUN_TB6612 or disable USE_MECANUM"
+     #elif defined(POLOLU_VNH5019)
+       #error "Pololu VNH5019 supports only 2 motors. Use SPARKFUN_TB6612 for mecanum mode or disable USE_MECANUM"
+     #elif defined(POLOLU_MC33926)
+       #error "Pololu MC33926 supports only 2 motors. Use SPARKFUN_TB6612 for mecanum mode or disable USE_MECANUM"
+     #endif
+   #endif
+   
+   // Validate encoder configuration
+   #ifdef NO_ENCODERS
+     #if defined(ROBOGAIA) || defined(ARDUINO_ENC_COUNTER) || defined(ARDUINO_HC89_COUNTER)
+       #warning "Encoder driver defined but NO_ENCODERS is set. Encoder functionality will be disabled."
+     #endif
+   #endif
+
 #endif
 
 //#define USE_SERVOS  // Enable use of PWM servos as defined in servos.h
 #undef USE_SERVOS     // Disable use of PWM servos
 
 /* Serial port baud rate */
-#define BAUDRATE     57600
+#define BAUDRATE     115200 // default= 57600
 
 /* Maximum PWM signal */
 #define MAX_PWM        255
@@ -136,9 +172,17 @@ char cmd;
 char argv1[16];
 char argv2[16];
 
+
 // The arguments converted to integers
 long arg1;
 long arg2;
+// 
+#ifdef USE_MECANUM
+  char argv3[16];
+  char argv4[16];
+  long arg3;
+  long arg4;
+#endif
 
 /* Clear the current command parameters */
 void resetCommand() {
@@ -147,12 +191,19 @@ void resetCommand() {
   memset(argv2, 0, sizeof(argv2));
   arg1 = 0;
   arg2 = 0;
+  #ifdef USE_MECANUM
+    memset(argv3, 0, sizeof(argv3));
+    memset(argv4, 0, sizeof(argv4));
+    arg3 = 0;
+    arg4 = 0;
+  #endif
+
   arg = 0;
   index = 0;
 }
 
 /* Run a command.  Commands are defined in commands.h */
-int runCommand() {
+void runCommand() {
   int i = 0;
   char *p = argv1;
   char *str;
@@ -209,7 +260,7 @@ int runCommand() {
     Serial.println("OK");
     break;
   case STEERING_DIR:
-    setSteeringDirection(arg1);
+    SET_STEERING_DIRECTION(arg1);
     Serial.println("OK");
     break;  
   case MOTOR_SPEEDS:
@@ -224,14 +275,50 @@ int runCommand() {
     drivePID.TargetTicksPerFrame = arg1;
     Serial.println("OK"); 
     break;
-  case MOTOR_RAW_PWM:
-    /* Reset the auto stop timer */
-    lastMotorCommand = millis();
-    resetPID();
-    moving = 0; // Sneaky way to temporarily disable the PID
-    setMotorSpeed(arg1);
-    Serial.println("OK"); 
-    break;
+case MOTOR_RAW_PWM:
+  /* Reset the auto stop timer */
+  lastMotorCommand = millis();
+  resetPID();
+  moving = 0;  // PIDs explizit aus
+
+  #ifdef USE_MECANUM
+    // Erwartet 4 Argumente: fl:fr:rl:rr (PWM -255..255)
+    arg1 = atoi(argv1);
+    arg2 = atoi(argv2);
+    arg3 = atoi(argv3);
+    arg4 = atoi(argv4);
+    setMecanumMotorSpeeds(arg1, arg2, arg3, arg4);
+  #else
+    // Erwartet 2 Argumente: left:right (PWM -255..255)
+    arg1 = atoi(argv1);
+    arg2 = atoi(argv2);
+    setMotorSpeeds(arg1, arg2);
+  #endif
+
+  Serial.println("OK");
+  break;
+
+  // case MOTOR_RAW_PWM:
+  //   /* Reset the auto stop timer */
+  //   lastMotorCommand = millis();
+  //   resetPID();
+  //   moving = 0; // Sneaky way to temporarily disable the PID
+  //      #ifdef USE_MECANUM
+  //       // ## 4-Motoren-Logik ##
+  //       arg1 = atoi(argv1); // fl
+  //       arg2 = atoi(argv2); // fr
+  //       arg3 = atoi(argv3); // rl
+  //       arg4 = atoi(argv4); // rr
+  //       setMecanumMotorSpeeds(arg1, arg2, arg3, arg4);
+  //   #else
+  //       // ## 2-Motoren-Logik ##
+  //       arg1 = atoi(argv1); // left
+  //       arg2 = atoi(argv2); // right
+  //       setMotorSpeeds(arg1, arg2);
+  //   #endif
+  //   setMotorSpeed(arg1);
+  //   Serial.println("OK"); 
+  //   break;
   case UPDATE_PID:
     while ((str = strtok_r(p, ":", &p)) != '\0') {
        pid_args[i] = atoi(str);
@@ -260,28 +347,31 @@ void setup() {
 
 // Initialize the motor controller if used */
 #ifdef USE_BASE
-  #ifdef ARDUINO_ENC_COUNTER
-    //set as inputs
-    DDRD &= ~(1<<LEFT_ENC_PIN_A);
-    DDRD &= ~(1<<LEFT_ENC_PIN_B);
-    DDRC &= ~(1<<RIGHT_ENC_PIN_A);
-    DDRC &= ~(1<<RIGHT_ENC_PIN_B);
-    
-    //enable pull up resistors
-    PORTD |= (1<<LEFT_ENC_PIN_A);
-    PORTD |= (1<<LEFT_ENC_PIN_B);
-    PORTC |= (1<<RIGHT_ENC_PIN_A);
-    PORTC |= (1<<RIGHT_ENC_PIN_B);
-    
-    // tell pin change mask to listen to left encoder pins
-    PCMSK2 |= (1 << LEFT_ENC_PIN_A)|(1 << LEFT_ENC_PIN_B);
-    // tell pin change mask to listen to right encoder pins
-    PCMSK1 |= (1 << RIGHT_ENC_PIN_A)|(1 << RIGHT_ENC_PIN_B);
-    
-    // enable PCINT1 and PCINT2 interrupt in the general interrupt mask
-    PCICR |= (1 << PCIE1) | (1 << PCIE2);
-  #elif defined(ARDUINO_HC89_COUNTER)
-    initEncoders();
+  // Initialize encoders only if they are enabled
+  #ifndef NO_ENCODERS
+    #ifdef ARDUINO_ENC_COUNTER
+      //set as inputs
+      DDRD &= ~(1<<LEFT_ENC_PIN_A);
+      DDRD &= ~(1<<LEFT_ENC_PIN_B);
+      DDRC &= ~(1<<RIGHT_ENC_PIN_A);
+      DDRC &= ~(1<<RIGHT_ENC_PIN_B);
+      
+      //enable pull up resistors
+      PORTD |= (1<<LEFT_ENC_PIN_A);
+      PORTD |= (1<<LEFT_ENC_PIN_B);
+      PORTC |= (1<<RIGHT_ENC_PIN_A);
+      PORTC |= (1<<RIGHT_ENC_PIN_B);
+      
+      // tell pin change mask to listen to left encoder pins
+      PCMSK2 |= (1 << LEFT_ENC_PIN_A)|(1 << LEFT_ENC_PIN_B);
+      // tell pin change mask to listen to right encoder pins
+      PCMSK1 |= (1 << RIGHT_ENC_PIN_A)|(1 << RIGHT_ENC_PIN_B);
+      
+      // enable PCINT1 and PCINT2 interrupt in the general interrupt mask
+      PCICR |= (1 << PCIE1) | (1 << PCIE2);
+    #elif defined(ARDUINO_HC89_COUNTER)
+      initEncoders();
+    #endif
   #endif
   initMotorController();
   resetPID();
@@ -303,37 +393,47 @@ void setup() {
    and run any valid commands. Run a PID calculation at the target
    interval and check for auto-stop conditions.
 */
+/* Enter the main loop.  Read and parse input from the serial port
+   and run any valid commands. Run a PID calculation at the target
+   interval and check for auto-stop conditions.
+*/
 void loop() {
   while (Serial.available() > 0) {
     
     // Read the next character
     chr = Serial.read();
 
-    // Terminate a command with a CR
+    // Terminate a command with a CR (Carriage Return)
     if (chr == 13) {
-      if (arg == 1) argv1[index] = NULL;
-      else if (arg == 2) argv2[index] = NULL;
+      // Add the final null terminator to the current argument string
+      if (arg == 1) argv1[index] = '\0';
+      else if (arg == 2) argv2[index] = '\0';
+      #ifdef USE_MECANUM
+        else if (arg == 3) argv3[index] = '\0';
+        else if (arg == 4) argv4[index] = '\0';
+      #endif
+      
       runCommand();
       resetCommand();
     }
     // Use spaces to delimit parts of the command
     else if (chr == ' ') {
-      // Step through the arguments
+      // Terminate the current argument string and move to the next
       if (arg == 0) arg = 1;
-      else if (arg == 1)  {
-        argv1[index] = NULL;
-        arg = 2;
-        index = 0;
-      }
+      else if (arg == 1) { argv1[index] = '\0'; arg = 2; index = 0; }
+      #ifdef USE_MECANUM
+        else if (arg == 2) { argv2[index] = '\0'; arg = 3; index = 0; }
+        else if (arg == 3) { argv3[index] = '\0'; arg = 4; index = 0; }
+      #endif
       continue;
     }
     else {
+      // Add the character to the current argument string
       if (arg == 0) {
-        // The first arg is the single-letter command
+        // The first char is the single-letter command
         cmd = chr;
       }
       else if (arg == 1) {
-        // Subsequent arguments can be more than one character
         argv1[index] = chr;
         index++;
       }
@@ -341,30 +441,129 @@ void loop() {
         argv2[index] = chr;
         index++;
       }
+      #ifdef USE_MECANUM
+        else if (arg == 3) {
+          argv3[index] = chr;
+          index++;
+        }
+        else if (arg == 4) {
+          argv4[index] = chr;
+          index++;
+        }
+      #endif
     }
   }
   
-// If we are using base control, run a PID calculation at the appropriate intervals
-#ifdef USE_BASE
-  if (millis() > nextPID) {
-    updatePID();
-    nextPID += PID_INTERVAL;
-  }
+  // If we are using base control, run a PID calculation at the appropriate intervals
+  #ifdef USE_BASE
+    if (millis() > nextPID) {
+      updatePID();
+      nextPID += PID_INTERVAL;
+    }
   
-  // Check to see if we have exceeded the auto-stop interval
-  if ((millis() - lastMotorCommand) > AUTO_STOP_INTERVAL) {;
-    setMotorSpeed(0);
-    setSteeringDirection(readEncoder(STEER));
-    moving = 0;
-  }
-#endif
+    // Check to see if we have exceeded the auto-stop interval
+    if ((millis() - lastMotorCommand) > AUTO_STOP_INTERVAL) {
+      #ifdef USE_MECANUM
+        // For Mecanum, stop all 4 motors. A dedicated function would be cleaner,
+        // but for now, we can just send zeros.
+        setMecanumMotorSpeeds(0, 0, 0, 0);
+      #else
+        // For 2-wheel drive, just stop the main drive motor output.
+        // Note: setMotorSpeed is not defined for TB6612, setMotorSpeeds is used.
+        setMotorSpeeds(0, 0);
+      #endif
+      moving = 0;
+    }
+  #endif
 
-// Sweep servos
-#ifdef USE_SERVOS
-  int i;
-  for (i = 0; i < N_SERVOS; i++) {
-    servos[i].doSweep();
-  }
-#endif
+  // Sweep servos
+  #ifdef USE_SERVOS
+    int i;
+    for (i = 0; i < N_SERVOS; i++) {
+      servos[i].doSweep();
+    }
+  #endif
 }
+// void loop() {
+//   while (Serial.available() > 0) {
+    
+//     // Read the next character
+//     chr = Serial.read();
+
+//     // Terminate a command with a CR
+//     if (chr == 13) {
+//       if (arg == 1) argv1[index] = NULL;
+//       else if (arg == 2) argv2[index] = NULL;
+//       runCommand();
+//       resetCommand();
+//     }
+//     // Use spaces to delimit parts of the command
+//     else if (chr == ' ') {
+//       if (arg == 0) arg = 1;
+//       else if (arg == 1) { argv1[index] = '\0'; arg = 2; index = 0; }
+//       #ifdef USE_MECANUM
+//         else if (arg == 2) { argv2[index] = '\0'; arg = 3; index = 0; }
+//         else if (arg == 3) { argv3[index] = '\0'; arg = 4; index = 0; }
+//       #endif
+//       continue;
+//     }
+//     // else if (chr == ' ') {
+//     //   // Step through the arguments
+//     //   if (arg == 0) arg = 1;
+//     //   else if (arg == 1)  {
+//     //     argv1[index] = NULL;
+//     //     arg = 2;
+//     //     index = 0;
+//     //   }
+//       continue;
+//     }
+//     // else {
+//     //   if (arg == 0) {
+//     //     // The first arg is the single-letter command
+//     //     cmd = chr;
+//     //   }
+//     else {
+//       if (arg == 0) { cmd = chr; }
+//       else if (arg == 1) { argv1[index] = chr; index++; }
+//       else if (arg == 2) { argv2[index] = chr; index++; }
+//       #ifdef USE_MECANUM
+//         else if (arg == 3) { argv3[index] = chr; index++; }
+//         else if (arg == 4) { argv4[index] = chr; index++; }
+//       #endif
+//     }
+//       else if (arg == 1) {
+//         // Subsequent arguments can be more than one character
+//         argv1[index] = chr;
+//         index++;
+//       }
+//       else if (arg == 2) {
+//         argv2[index] = chr;
+//         index++;
+//       }
+//     }
+//   }
+  
+// // If we are using base control, run a PID calculation at the appropriate intervals
+// #ifdef USE_BASE
+//   if (millis() > nextPID) {
+//     updatePID();
+//     nextPID += PID_INTERVAL;
+//   }
+  
+//   // Check to see if we have exceeded the auto-stop interval
+//   if ((millis() - lastMotorCommand) > AUTO_STOP_INTERVAL) {;
+//     setMotorSpeed(0);
+//     SET_STEERING_DIRECTION(readEncoder(STEER));
+//     moving = 0;
+//   }
+// #endif
+
+// // Sweep servos
+// #ifdef USE_SERVOS
+//   int i;
+//   for (i = 0; i < N_SERVOS; i++) {
+//     servos[i].doSweep();
+//   }
+// #endif
+// }
 
