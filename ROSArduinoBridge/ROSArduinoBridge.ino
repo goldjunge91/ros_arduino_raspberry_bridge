@@ -271,21 +271,87 @@ void runCommand() {
   case MOTOR_SPEEDS:
     /* Reset the auto stop timer */
     lastMotorCommand = millis();
+#ifdef USE_MECANUM
+    // Expect four wheel speed arguments: fl fr rl rr
+    arg1 = atoi(argv1);
+    arg2 = atoi(argv2);
+    arg3 = atoi(argv3);
+    arg4 = atoi(argv4);
+
+    if (arg1 == 0 && arg2 == 0 && arg3 == 0 && arg4 == 0) {
+      // Stop all wheels and reset controllers
+      setMecanumTargetSpeeds(0, 0, 0, 0);
+#ifndef NO_ENCODERS
+      resetMecanumPID();
+#else
+      setMecanumDirectSpeeds(0, 0, 0, 0);
+#endif
+    } else {
+#ifndef NO_ENCODERS
+      // PID-based control with target ticks per frame
+      setMecanumTargetSpeeds(arg1, arg2, arg3, arg4);
+#else
+      // Direct PWM control without encoders
+      setMecanumDirectSpeeds(arg1, arg2, arg3, arg4);
+#endif
+    }
+    Serial.println("OK");
+    break;
+#else
     if (arg1 == 0) {
       setMotorSpeed(0);
       resetPID();
       moving = 0;
-    }
-    else {
+    } else {
       moving = 1;
-      #ifndef NO_ENCODERS
+#ifndef NO_ENCODERS
       drivePID.TargetTicksPerFrame = arg1;
-      #else
+#else
       // In encoder-less mode, use direct motor speed control
       setDirectDriveSpeed(arg1);
-      #endif
+#endif
     }
-    Serial.println("OK"); 
+    Serial.println("OK");
+    break;
+#endif
+
+  case MECANUM_TWIST:
+#ifdef USE_MECANUM
+    /* Reset the auto stop timer */
+    lastMotorCommand = millis();
+
+    // Parse vx:vy:wz from first argument string
+    float twist[3] = {0.0, 0.0, 0.0};
+    p = argv1;
+    i = 0;
+    while ((str = strtok_r(p, ":", &p)) != '\0' && i < 3) {
+      twist[i++] = atof(str);
+    }
+
+    // Scale inputs and compute wheel PWM speeds
+    float vx = twist[0] / VEL_SCALE_FACTOR;
+    float vy = twist[1] / VEL_SCALE_FACTOR;
+    float wz = twist[2] / VEL_SCALE_FACTOR;
+    int wheelSpeeds[4];
+    mecanumTwistToWheels(vx, vy, wz, wheelSpeeds);
+
+#ifndef NO_ENCODERS
+    // Convert PWM-based speeds to encoder ticks per frame for PID
+    setMecanumTargetSpeeds(
+      wheelSpeedToTicksPerFrame(wheelSpeeds[0] * PWM_TO_VELOCITY_RATIO),
+      wheelSpeedToTicksPerFrame(wheelSpeeds[1] * PWM_TO_VELOCITY_RATIO),
+      wheelSpeedToTicksPerFrame(wheelSpeeds[2] * PWM_TO_VELOCITY_RATIO),
+      wheelSpeedToTicksPerFrame(wheelSpeeds[3] * PWM_TO_VELOCITY_RATIO)
+    );
+#else
+    // Direct PWM application without encoders
+    setMecanumDirectSpeeds(wheelSpeeds[0], wheelSpeeds[1], wheelSpeeds[2], wheelSpeeds[3]);
+#endif
+
+    Serial.println("OK");
+#else
+    Serial.println("Invalid Command");
+#endif
     break;
 case MOTOR_RAW_PWM:
   /* Reset the auto stop timer */
