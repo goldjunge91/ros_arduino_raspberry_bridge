@@ -20,7 +20,7 @@
   - Add motor speed clamping and validation
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
-- [-] 4. Create mecanum controller module
+- [x] 4. Create mecanum controller module
   - Create new mecanum_controller.h file with data structures
   - Implement mecanum wheel kinematics calculations
   - Add mecanumTwistToWheels function for velocity conversion
@@ -34,7 +34,7 @@
   - Add updateDirectMecanum for encoder-less operation
   - _Requirements: 5.3, 5.4, 5.5_
 
-- [ ] 6. Modify differential controller for encoder-less operation
+- [x] 6. Modify differential controller for encoder-less operation
   - Add conditional compilation blocks in diff_controller.h
   - Implement updateDirectDrive function for open-loop control
   - Modify existing PID functions to handle NO_ENCODERS gracefully
