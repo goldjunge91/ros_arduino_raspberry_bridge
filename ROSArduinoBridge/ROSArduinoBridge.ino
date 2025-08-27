@@ -276,8 +276,15 @@ void runCommand() {
       resetPID();
       moving = 0;
     }
-    else moving = 1;
-    drivePID.TargetTicksPerFrame = arg1;
+    else {
+      moving = 1;
+      #ifndef NO_ENCODERS
+      drivePID.TargetTicksPerFrame = arg1;
+      #else
+      // In encoder-less mode, use direct motor speed control
+      setDirectDriveSpeed(arg1);
+      #endif
+    }
     Serial.println("OK"); 
     break;
 case MOTOR_RAW_PWM:

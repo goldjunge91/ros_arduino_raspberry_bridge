@@ -40,6 +40,12 @@ int Ko = 50;
 
 unsigned char moving = 0; // is the base in motion?
 
+#ifdef NO_ENCODERS
+// Forward declarations for encoder-less operation functions
+void updateDirectDrive();
+void setDirectDriveSpeed(int speed);
+#endif
+
 /*
 * Initialize PID variables to zero to prevent startup spikes
 * when turning PID on to start moving
@@ -50,8 +56,13 @@ unsigned char moving = 0; // is the base in motion?
 */
 void resetPID(){
    drivePID.TargetTicksPerFrame = 0.0;
+   #ifndef NO_ENCODERS
    drivePID.Encoder = readEncoder(DRIVE);
    drivePID.PrevEnc = drivePID.Encoder;
+   #else
+   drivePID.Encoder = 0;
+   drivePID.PrevEnc = 0;
+   #endif
    drivePID.output = 0;
    drivePID.PrevInput = 0;
    drivePID.ITerm = 0;
@@ -59,6 +70,7 @@ void resetPID(){
 
 /* PID routine to compute the next motor commands */
 void doPID(SetPointInfo * p) {
+  #ifndef NO_ENCODERS
   long Perror;
   long output;
   int input;
@@ -93,10 +105,16 @@ void doPID(SetPointInfo * p) {
 
   p->output = output;
   p->PrevInput = input;
+  #else
+  // When encoders are not available, PID control is disabled
+  // This function should not be called in NO_ENCODERS mode
+  p->output = 0;
+  #endif
 }
 
 /* Read the encoder values and call the PID routine */
 void updatePID() {
+  #ifndef NO_ENCODERS
   /* Read the encoders */
   drivePID.Encoder = readEncoder(DRIVE);
   
@@ -117,5 +135,52 @@ void updatePID() {
 
   /* Set the motor speed accordingly */
   setMotorSpeed(drivePID.output);
+  #else
+  // When encoders are not available, use direct drive mode
+  updateDirectDrive();
+  #endif
 }
+
+#ifdef NO_ENCODERS
+/*
+* Direct drive update function for encoder-less operation
+* This function maintains motor commands without PID feedback control
+* It handles auto-stop functionality and direct PWM motor control
+*/
+void updateDirectDrive() {
+  /* If we're not moving there is nothing more to do */
+  if (!moving){
+    /* Ensure motors are stopped */
+    if (drivePID.output != 0) {
+      drivePID.output = 0;
+      setMotorSpeed(0);
+    }
+    return;
+  }
+
+  /* In direct drive mode, the output is set directly by motor commands */
+  /* The drivePID.output holds the last commanded motor speed */
+  setMotorSpeed(drivePID.output);
+}
+
+/*
+* Set direct motor speed for encoder-less operation
+* This function bypasses PID control and sets motor speed directly
+* Used when NO_ENCODERS is defined and direct motor control is needed
+*/
+void setDirectDriveSpeed(int speed) {
+  /* Clamp speed to valid PWM range */
+  if (speed > MAX_PWM) speed = MAX_PWM;
+  else if (speed < -MAX_PWM) speed = -MAX_PWM;
+  
+  /* Store the commanded speed in the PID structure for consistency */
+  drivePID.output = speed;
+  
+  /* Set moving flag based on speed */
+  moving = (speed != 0) ? 1 : 0;
+  
+  /* Apply the motor speed immediately */
+  setMotorSpeed(speed);
+}
+#endif
 
